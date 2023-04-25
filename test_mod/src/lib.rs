@@ -1,4 +1,4 @@
-use plugin_lib::{version, name, Item, export_item};
+use plugin_lib::{version, name, Item, export_items};
 
 version!();
 
@@ -12,4 +12,12 @@ impl Item for Marker {
     }
 }
 
-export_item!(Marker);
+struct AlsoMarker;
+
+impl Item for AlsoMarker {
+    fn id() -> i64 {
+        23
+    }
+}
+
+export_items!(Marker, AlsoMarker);
