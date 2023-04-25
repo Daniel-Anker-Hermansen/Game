@@ -12,18 +12,13 @@ macro_rules! version {
     () => {
         const _: () = {        
             #[no_mangle]
-            pub static __API_VERSION: $crate::Version = $crate::__api_version_inner();
+            pub static __API_VERSION: $crate::Version = $crate::Version {
+                major: 0,
+                minor: 1,
+                patch: 0,
+            };
         };
     };
-}
-
-#[inline]
-pub const fn __api_version_inner() -> Version {
-    Version {
-        major: 0,
-        minor: 1,
-        patch: 0,
-    }
 }
 
 #[macro_export]
