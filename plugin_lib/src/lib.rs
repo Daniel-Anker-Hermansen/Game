@@ -10,11 +10,10 @@ pub struct Version {
 #[macro_export]
 macro_rules! version {
     () => {
-        mod __api_version {        
-            use plugin_lib::{Version, __api_version_inner};
+        const _: () = {        
             #[no_mangle]
-            pub static __API_VERSION: Version = __api_version_inner();
-        }
+            pub static __API_VERSION: $crate::Version = $crate::__api_version_inner();
+        };
     };
 }
 
@@ -27,40 +26,13 @@ pub const fn __api_version_inner() -> Version {
     }
 }
 
-/// Represents &'static str for ffi boundry.
-#[repr(C)]
-pub struct StaticString {
-    ptr: *const u8,
-    len: usize,
-}
-
-unsafe impl Sync for StaticString { }
-unsafe impl Send for StaticString { }
-
-impl From<&'static str> for StaticString {
-    fn from(value: &'static str) -> Self {
-        from_str(value)
-    }
-}
-
-impl<'a> From<&'a StaticString> for &'static str {
-    fn from(value: &'a StaticString) -> Self {
-        unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(value.ptr, value.len)) }
-    }
-}
-
-pub const fn from_str(value: &str) -> StaticString {
-    StaticString { ptr: value.as_ptr(), len: value.len() } 
-} 
-
 #[macro_export]
 macro_rules! name {
     ($name:expr) => {
-        mod __plugin_name {
-            use plugin_lib::{StaticString, from_str};
+        const _: () = {
             #[no_mangle]
-            pub static __PLUGIN_NAME: StaticString = from_str($name);
-        }
+            pub static __PLUGIN_NAME: $crate::ffi_types::FFIStaticStr = $crate::ffi_types::FFIStaticStr::from_str($name);
+        };
     };
 }
 
@@ -85,20 +57,19 @@ macro_rules! __export_item {
 #[macro_export]
 macro_rules! export_items {
     ($($t:ty), *) => {
-        mod __export_items {
-            use super::*;
-            // The inner type of FFIVec is FFIString.
+        const _: () = {
+            // The inner type of FFIVec is FFIStaticStr.
             #[no_mangle]
             pub extern "C" fn __exported_items() -> $crate::ffi_types::FFIVec {
-                let mut vec: Vec<$crate::ffi_types::FFIString> = vec![];
+                let mut vec: Vec<$crate::ffi_types::FFIStaticStr> = vec![];
                 $(
-                    vec.push(stringify!($t).to_string().into());
+                    vec.push($crate::ffi_types::FFIStaticStr::from_str(stringify!($t)));
                 ) *
                 vec.into()
             }
             $(
                 $crate::__export_item!($t);
             ) *
-        }
+        };
     };
 }

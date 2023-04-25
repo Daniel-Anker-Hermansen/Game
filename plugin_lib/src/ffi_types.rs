@@ -38,6 +38,34 @@ impl Drop for FFIString {
     }
 }
 
+/// FFI version for &'static str
+#[repr(C)]
+pub struct FFIStaticStr {
+    ptr: *const u8,
+    len: usize,
+}
+
+unsafe impl Send for FFIStaticStr { }
+unsafe impl Sync for FFIStaticStr { }
+
+impl FFIStaticStr {
+    pub const fn from_str(value: &'static str) -> FFIStaticStr {
+        FFIStaticStr { ptr: value.as_ptr(), len: value.len() }
+    }
+}
+
+impl From<FFIStaticStr> for &'static str {
+    fn from(value: FFIStaticStr) -> Self {
+        unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(value.ptr, value.len)) }
+    }
+}
+
+impl From<&FFIStaticStr> for &'static str {
+    fn from(value: &FFIStaticStr) -> Self {
+        unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(value.ptr, value.len)) }
+    }
+}
+
 /// FFI version for Vec.
 /// Use the to_vec function to convert.
 /// If you do not convert the contents are leaked.
