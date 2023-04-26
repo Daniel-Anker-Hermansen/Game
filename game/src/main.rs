@@ -1,17 +1,13 @@
-use std::{ops::Deref, net::{TcpStream, TcpListener}, io::{Write, Read}};
+use std::{ops::Deref, net::{TcpStream, TcpListener}, io::{Write, BufWriter, BufReader}};
 
+use io_serde::{BufReadExt, BufWriteExt};
 use plugin_lib::{Version, ffi_types::{FFIVec, FFIStaticStr}};
 
 const __API_VERSION: &[u8] = b"__API_VERSION";
 const __PLUGIN_NAME: &[u8] = b"__PLUGIN_NAME";
 
 fn main() {
-    //let gateway = igd::search_gateway(Default::default()).unwrap();
-    //let ip = gateway.get_external_ip().unwrap();
-    //dbg!(&ip);
-    
-    let mut tcp = connect();
-
+    let tcp = connect();
 
     let plugins = std::fs::read_dir("plugins").unwrap();
     let mut plugs = vec![];
@@ -43,29 +39,19 @@ fn main() {
             Err(e) => eprintln!("{e}"),
         }
     }
-    tell_plugins(&mut tcp, &plugs);
-    let plugs = get_plugins(&mut tcp);
-    println!("\nOther client has plugins:");
-    for plug in plugs {
-        println!("{plug}");
-    }
-}
-
-fn tell_plugins(tcp: &mut TcpStream, plugins: &Vec<&str>) {
-    let bytes = postcard::to_allocvec(plugins).unwrap();
-    let len = bytes.len();
-    let len = len.to_le_bytes();
-    tcp.write_all(&len).unwrap();
-    tcp.write_all(&bytes).unwrap();
-}
-
-fn get_plugins(tcp: &mut TcpStream) -> Vec<String> {
-    let mut bytes = [0; std::mem::size_of::<usize>()];
-    tcp.read_exact(&mut bytes).unwrap();
-    let len = usize::from_le_bytes(bytes);
-    let mut bytes = vec![0; len];
-    tcp.read_exact(&mut bytes).unwrap();
-    postcard::from_bytes(&bytes).unwrap()
+    let tcp_writer = tcp.try_clone().unwrap();
+    let mut buf_writer = BufWriter::new(tcp_writer);
+    let mut buf_reader = BufReader::new(tcp);
+    let thread = std::thread::spawn(move || {
+        let plugs: Vec<String> = buf_reader.read_serde().unwrap();
+        println!("\nOther client has plugins:");
+        for plug in plugs {
+            println!("{plug}");
+        }
+    });
+    buf_writer.write_serde(&plugs).unwrap();
+    buf_writer.flush().unwrap();
+    thread.join().unwrap();
 }
 
 fn connect() -> TcpStream {
@@ -75,8 +61,8 @@ fn connect() -> TcpStream {
     match input.trim() {
         "0" => {
             let listener = TcpListener::bind("0.0.0.0:0").unwrap();
-            let addr = listener.local_addr().unwrap();
-            println!("Hosting at: {addr:?}");
+            let addr = listener.local_addr().unwrap().port();
+            println!("Hosting at port: {addr:?}");
             let (tcp, socket) = listener.accept().unwrap();
             println!("Connected to: {socket:?}");
             tcp
