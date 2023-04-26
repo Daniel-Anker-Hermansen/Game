@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 plugin_lib = { path = "../plugin_lib" }
 libloading = "0.8.0"
+igd = "0.12.0"

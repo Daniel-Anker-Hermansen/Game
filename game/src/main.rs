@@ -6,6 +6,11 @@ const __API_VERSION: &[u8] = b"__API_VERSION";
 const __PLUGIN_NAME: &[u8] = b"__PLUGIN_NAME";
 
 fn main() {
+    let gateway = igd::search_gateway(Default::default()).unwrap();
+    let ip = gateway.get_external_ip().unwrap();
+    dbg!(&ip);
+
+
     let plugins = std::fs::read_dir("plugins").unwrap();
     for file in plugins {
         match file {
