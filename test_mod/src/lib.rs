@@ -4,20 +4,37 @@ version!();
 
 name!("Hello from Rust!");
 
-struct Marker;
+/*pub struct Marker {
+    id: i64,
+}
 
 impl Item for Marker {
-    fn id() -> i64 {
-        12
+    fn id(&mut self) -> i64 {
+        self.id += 1;
+        self.id
+    }
+
+    fn new() -> Self {
+        Marker { id: 0 }
     }
 }
 
-struct AlsoMarker;
+pub struct Fibonacci {
+    prev1: i64,
+    prev2: i64,
+}
 
-impl Item for AlsoMarker {
-    fn id() -> i64 {
-        23
+impl Item for Fibonacci {
+    fn id(&mut self) -> i64 {
+        let tmp = self.prev1 + self.prev2;
+        self.prev1 = self.prev2;
+        self.prev2 = tmp;
+        self.prev1
+    }
+
+    fn new() -> Self {
+        Fibonacci { prev1: 0, prev2: 1 }
     }
 }
 
-export_items!(Marker, AlsoMarker);
+export_items!(Marker, Fibonacci);*/

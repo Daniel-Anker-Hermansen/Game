@@ -1,13 +1,16 @@
-use std::{ops::Deref, net::{TcpStream, TcpListener}, io::{Write, BufWriter, BufReader}};
+use std::{ops::Deref, net::{TcpStream, TcpListener}};
 
-use io_serde::{BufReadExt, BufWriteExt};
-use plugin_lib::{Version, ffi_types::{FFIVec, FFIStaticStr}};
+use plugin_lib::{Version, ffi_types::{FFIVec, FFIStaticStr}, ItemConstructor, ItemGame};
 
 const __API_VERSION: &[u8] = b"__API_VERSION";
 const __PLUGIN_NAME: &[u8] = b"__PLUGIN_NAME";
 
 fn main() {
-    let tcp = connect();
+    //let tcp = connect();
+    
+    std::panic::set_hook(Box::new(|_info| {
+        println!("Do i get called in foreign code?");
+    }));
 
     let plugins = std::fs::read_dir("plugins").unwrap();
     let mut plugs = vec![];
@@ -28,10 +31,12 @@ fn main() {
                     let vec: Vec<FFIStaticStr> = unsafe { ffi_vec.to_vec() };
                     for item in vec {
                         let string: &str = item.into();
-                        let ident = format!("__item_id_{}", string);
-                        let item_id = unsafe { lib.get::<extern "C" fn() -> i64>(ident.as_bytes()).unwrap() };
-                        let id = item_id();
-                        println!("{} has id: {}", string, id);
+                        let constructor = ItemConstructor::load_from_lib(string, &lib);
+                        let mut item = constructor.construct_item();
+                        println!("Item name: {}", string);
+                        for i in 0..100 {
+                            println!("{}", item.id());
+                        }
                     }
                 }
                 libs.push(lib);
@@ -39,7 +44,7 @@ fn main() {
             Err(e) => eprintln!("{e}"),
         }
     }
-    let tcp_writer = tcp.try_clone().unwrap();
+    /*let tcp_writer = tcp.try_clone().unwrap();
     let mut buf_writer = BufWriter::new(tcp_writer);
     let mut buf_reader = BufReader::new(tcp);
     let thread = std::thread::spawn(move || {
@@ -51,7 +56,7 @@ fn main() {
     });
     buf_writer.write_serde(&plugs).unwrap();
     buf_writer.flush().unwrap();
-    thread.join().unwrap();
+    thread.join().unwrap();*/
 }
 
 fn connect() -> TcpStream {

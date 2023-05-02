@@ -118,6 +118,17 @@ name = "plugin_lib"
 version = "0.1.0"
 dependencies = [
  "concat-idents",
+ "libloading",
+ "plugin_lib_proc",
+]
+
+[[package]]
+name = "plugin_lib_proc"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.15",
 ]
 
 [[package]]
