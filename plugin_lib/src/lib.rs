@@ -1,4 +1,6 @@
 pub mod ffi_types;
+use std::marker::PhantomData;
+
 pub use concat_idents::concat_idents;
 #[cfg(feature = "game")]
 use libloading::Library;
@@ -35,10 +37,38 @@ macro_rules! name {
     };
 }
 
-pub trait Item {
+pub trait Item: Sized {
     fn new() -> Self;
 
     fn id(&mut self) -> i64;
+}
+
+#[cfg(feature = "plugin")]
+trait ItemRawAdapter: Item {
+    extern fn new() -> *mut () {
+        alloc(<Self as Item>::new()).cast()
+    }
+
+    extern fn id(ptr: *mut ()) -> i64 {
+        unsafe { &mut *ptr.cast::<Self>() }.id()
+    }
+
+    extern fn drop(ptr: *mut ()) {
+        drop(ptr);
+    }
+}
+
+#[cfg(feature = "plugin")]
+impl<T> ItemRawAdapter for T where T: Item { }
+
+#[cfg(feature = "plugin")]
+pub const fn item_vtable<T>() -> ItemVTable<'static> where T: Item {
+    ItemVTable { 
+        new: <T as ItemRawAdapter>::new, 
+        id: <T as ItemRawAdapter>::id, 
+        drop: <T as ItemRawAdapter>::drop, 
+        _phantom: PhantomData 
+    }
 }
 
 #[cfg(feature = "game")]
@@ -46,48 +76,38 @@ pub trait ItemGame {
     fn id(&mut self) -> i64;
 }
 
-#[cfg(feature = "game")]
+#[repr(C)]
 pub struct ItemVTable<'lib> {
-    this: &'lib mut (),
-    id: Symbol<'lib, extern "C" fn(&mut ()) -> i64>,
-    drop: Symbol<'lib, extern "C" fn(&mut ())>,
+    new: extern fn() -> *mut (),
+    id: extern fn(*mut ()) -> i64 ,
+    drop: extern fn(*mut ()),
+    _phantom: PhantomData<&'lib ()>,
 }
 
 #[cfg(feature = "game")]
-impl Drop for ItemVTable<'_> {
+impl<'lib> ItemVTable<'lib> {
+    pub fn new(&'lib self) -> ItemInstance<'lib> {
+        ItemInstance { this: (self.new)(), vtable: self }
+    }
+}
+
+#[cfg(feature = "game")]
+pub struct ItemInstance<'lib> {
+    this: *mut (),
+    vtable: &'lib ItemVTable<'lib>,
+}
+
+#[cfg(feature = "game")]
+impl Drop for ItemInstance<'_> {
     fn drop(&mut self) {
-        (self.drop)(self.this)
+        (self.vtable.drop)(self.this)
     }
 }
 
 #[cfg(feature = "game")]
-impl ItemGame for ItemVTable<'_> {
+impl ItemGame for ItemInstance<'_> {
     fn id(&mut self) -> i64 {
-        (self.id)(self.this)
-    }
-}
-
-#[cfg(feature = "game")]
-pub struct ItemConstructor<'lib> {
-    constructor: Symbol<'lib, extern "C" fn() -> &'lib mut ()>,
-    id: Symbol<'lib, extern "C" fn(&mut ()) -> i64>,
-    drop: Symbol<'lib, extern "C" fn(&mut ())>,
-}
-
-#[cfg(feature = "game")]
-impl<'lib> ItemConstructor<'lib> {
-    pub fn load_from_lib(type_name: &str, lib: &'lib Library) -> ItemConstructor<'lib> {
-        let ident = format!("__item_new_{}", type_name);
-        let constructor = unsafe { lib.get(ident.as_bytes()) }.unwrap();
-        let ident = format!("__item_id_{}", type_name);
-        let id = unsafe { lib.get(ident.as_bytes()) }.unwrap();
-        let ident = format!("__item_drop_{}", type_name);
-        let drop = unsafe { lib.get(ident.as_bytes()) }.unwrap();
-        ItemConstructor { constructor, id, drop }
-    }
-
-    pub fn construct_item(&self) -> ItemVTable<'lib> {
-        ItemVTable { this: (self.constructor)(), id: self.id.clone(), drop: self.drop.clone() } 
+        (self.vtable.id)(self.this)
     }
 }
 
@@ -97,11 +117,11 @@ pub fn alloc<T>(val: T) -> *mut T {
 
 pub fn drop<T>(ptr: *mut T) {
     unsafe {
-        std::mem::drop(Box::from_raw(ptr));
+        std::ptr::drop_in_place(ptr);
     }
 }
 
-#[macro_export]
+/*#[macro_export]
 macro_rules! __export_item {
     ($t:ty) => {
         $crate::concat_idents!(fn_name = __item_new_, $t {
@@ -123,24 +143,18 @@ macro_rules! __export_item {
             }
         });
     };
-}
+}*/
 
 #[macro_export]
 macro_rules! export_items {
     ($($t:ty), *) => {
         const _: () = {
-            // The inner type of FFIVec is FFIStaticStr.
             #[no_mangle]
-            pub extern "C" fn __exported_items() -> $crate::ffi_types::FFIVec {
-                let mut vec: Vec<$crate::ffi_types::FFIStaticStr> = vec![];
+            pub static __EXPORTED_ITEMS: $crate::ffi_types::FFISlice = $crate::ffi_types::slice_to_ffi(&[
                 $(
-                    vec.push($crate::ffi_types::FFIStaticStr::from_str(stringify!($t)));
+                    $crate::item_vtable::<$t>(),
                 ) *
-                vec.into()
-            }
-            $(
-                $crate::__export_item!($t);
-            ) *
+            ]);
         };
     };
 }

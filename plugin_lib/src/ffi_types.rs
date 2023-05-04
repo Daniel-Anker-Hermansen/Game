@@ -3,6 +3,11 @@
 //! across crates, most importantly between the main
 //! game and any plugin. All of these are FFI safe.
 
+use core::slice;
+use std::marker::PhantomData;
+
+use libloading::{Library, Symbol, Error};
+
 /// FFI version for string. 
 #[repr(C)]
 pub struct FFIString {
@@ -94,4 +99,39 @@ impl FFIVec {
     pub unsafe fn to_vec<T>(self) -> Vec<T> {
         unsafe { Vec::from_raw_parts(self.ptr as _, self.len, self.cap) } 
     }
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct FFISlice<'lib> {
+    ptr: *const (),
+    len: usize,
+    _phantom: PhantomData<&'lib ()>,
+}
+
+unsafe impl Sync for FFISlice<'_> { }
+unsafe impl Send for FFISlice<'_> { }
+
+impl<'lib> FFISlice<'lib> {
+    pub unsafe fn to_slice<T>(&self) -> &'lib [T] {
+        unsafe { slice::from_raw_parts(self.ptr.cast(), self.len) }
+    }
+
+    pub fn load_from_lib(lib: &'lib Library, symbol: &[u8]) -> Result<Symbol<'lib, &'lib FFISlice<'lib>>, Error> {
+        unsafe { lib.get(symbol) } 
+    }
+}
+
+impl<T> From<&'static [T]> for FFISlice<'static> {
+    fn from(value: &'static [T]) -> Self {
+        slice_to_ffi(value)
+    }
+}
+
+pub const fn slice_to_ffi<T>(value: &'static [T]) -> FFISlice<'static> {
+        FFISlice { ptr: value.as_ptr().cast(), len: value.len(), _phantom: PhantomData }
+}
+
+pub unsafe fn load_slice_from_lib<'lib, T>(lib: &'lib Library, symbol: &[u8]) -> &'lib [T] {
+    FFISlice::load_from_lib(lib, symbol).map(|symbol| FFISlice::clone(&symbol).to_slice()).unwrap_or(&[])
 }

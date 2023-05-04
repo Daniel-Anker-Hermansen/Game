@@ -1,6 +1,6 @@
 use std::{ops::Deref, net::{TcpStream, TcpListener}};
 
-use plugin_lib::{Version, ffi_types::{FFIVec, FFIStaticStr}, ItemConstructor, ItemGame};
+use plugin_lib::{Version, ffi_types::{FFIStaticStr, load_slice_from_lib, FFISlice}, ItemGame, ItemVTable};
 
 const __API_VERSION: &[u8] = b"__API_VERSION";
 const __PLUGIN_NAME: &[u8] = b"__PLUGIN_NAME";
@@ -26,17 +26,12 @@ fn main() {
                 println!("Plugin name: {}", name);
                 plugs.push(name);
                 println!("{}.{}.{}", version.major, version.minor, version.patch);
-                if let Ok(exported_items) = unsafe { lib.get::<extern "C" fn() -> FFIVec>(b"__exported_items") } {
-                    let ffi_vec = exported_items();
-                    let vec: Vec<FFIStaticStr> = unsafe { ffi_vec.to_vec() };
-                    for item in vec {
-                        let string: &str = item.into();
-                        let constructor = ItemConstructor::load_from_lib(string, &lib);
-                        let mut item = constructor.construct_item();
-                        println!("Item name: {}", string);
-                        for i in 0..100 {
-                            println!("{}", item.id());
-                        }
+                let items: &[ItemVTable] = unsafe { load_slice_from_lib(&lib, b"__EXPORTED_ITEMS") };
+                for item in items {
+                    let mut instance = item.new();
+                    println!("Missing name...");
+                    for _ in 0..50 {
+                        println!("{}", instance.id());
                     }
                 }
                 libs.push(lib);

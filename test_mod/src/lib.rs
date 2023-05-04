@@ -4,7 +4,7 @@ version!();
 
 name!("Hello from Rust!");
 
-/*pub struct Marker {
+pub struct Marker {
     id: i64,
 }
 
@@ -37,4 +37,4 @@ impl Item for Fibonacci {
     }
 }
 
-export_items!(Marker, Fibonacci);*/
+export_items!(Marker, Fibonacci);
