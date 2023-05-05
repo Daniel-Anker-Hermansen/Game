@@ -1,5 +1,5 @@
 pub mod ffi_types;
-use ffi_types::FFIStaticStr;
+use ffi_types::{FFIStaticStr, FFIString};
 
 #[repr(C)]
 pub struct Version {
@@ -13,7 +13,7 @@ pub struct Metadata {
     pub api_version: Version,
     pub plugin_version: Version,
     pub plugin_name: FFIStaticStr,
-    pub constructor: extern fn(),
+    pub constructor: extern fn(extern fn(FFIString, usize), usize),
 }
 
 #[cfg(feature = "plugin")]
@@ -21,24 +21,21 @@ pub struct Metadata {
 macro_rules! meta {
     ($name:expr, $major:expr, $minor:expr, $patch:expr) => {
         const _: () = {        
-            extern fn init() {
-                std::panic::set_hook(Box::new(|panic_info| {
-                    eprintln!("Game panicked inside plugin: {}, version: {}.{}.{}.", $name, $major, $minor, $patch);
-                    eprintln!("This is most likely a bug in that plugin. Please send a bug report including the following:");
+            extern fn init(f: extern fn($crate::ffi_types::FFIString, usize), proxy: usize) {
+                std::panic::set_hook(Box::new(move |panic_info| {
+                    let mut msg = String::new();
+                    msg.push_str(&format!("Game panicked inside plugin: {}, version: {}.{}.{}.\n", $name, $major, $minor, $patch));
+                    msg.push_str("This is most likely a bug in that plugin. Please send a bug report including the following:\n");
                     if let Some(loc) = panic_info.location() {
-                        eprintln!("Panic occured in file: '{}' at line {}.", loc.file(), loc.line());
+                        msg.push_str(&format!("Panic occured in file: '{}' at line {}.\n", loc.file(), loc.line()));
                     }
                     if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-                        eprintln!("Reason for panic: {s:?}.");
+                        msg.push_str(&format!("Reason for panic: {s:?}.\n"));
                     } 
                     else {
-                        eprintln!("Unknown reason for panic.");
+                        msg.push_str("Unknown reason for panic.\n");
                     }
-                    // In future version this can callback to game so that the error can be
-                    // displayed in window and perhaps have an automatic bug report submission
-                    // field. For now exit with -1 error code to avoid core dumped from
-                    // unsuccesful catching of panic from game.
-                    std::process::exit(-1);
+                    f($crate::ffi_types::FFIString::from(msg), proxy);
                 }));
             }
 
@@ -104,6 +101,8 @@ pub const fn item_vtable<T>() -> ItemVTable where T: Item {
 #[cfg(feature = "game")]
 pub trait ItemGame {
     fn id(&mut self) -> i64;
+
+    fn name(&self) -> &str;
 }
 
 #[repr(C)]
@@ -114,6 +113,9 @@ pub struct ItemVTable {
     id: extern fn(*mut ()) -> i64 ,
     drop: extern fn(*mut ()),
 }
+
+unsafe impl Send for ItemVTable { }
+unsafe impl Sync for ItemVTable { }
 
 #[cfg(feature = "game")]
 impl ItemVTable {
@@ -133,6 +135,11 @@ pub struct ItemInstance<'lib> {
 }
 
 #[cfg(feature = "game")]
+unsafe impl Send for ItemInstance<'_> { }
+#[cfg(feature = "game")]
+unsafe impl Sync for ItemInstance<'_> { }
+
+#[cfg(feature = "game")]
 impl Drop for ItemInstance<'_> {
     fn drop(&mut self) {
         (self.vtable.drop)(self.this)
@@ -143,6 +150,10 @@ impl Drop for ItemInstance<'_> {
 impl ItemGame for ItemInstance<'_> {
     fn id(&mut self) -> i64 {
         (self.vtable.id)(self.this)
+    }
+
+    fn name(&self) -> &str {
+        self.vtable().name()
     }
 }
 
@@ -175,4 +186,10 @@ macro_rules! export_items {
             ]);
         };
     };
+}
+
+#[cfg(feature = "game")]
+#[derive(Debug)]
+pub enum UserEvent {
+    Panic(String),
 }
