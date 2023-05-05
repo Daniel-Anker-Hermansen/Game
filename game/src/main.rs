@@ -90,8 +90,10 @@ fn main() {
     });
 }
 
+/// Panic function for plugins so that blue screen of death is shown.
 extern fn panic(msg: FFIString, proxy: usize) {
     let proxy: *mut EventLoopProxy<UserEvent> = unsafe { std::mem::transmute(proxy) };
     unsafe { &*proxy }.send_event(UserEvent::Panic(String::from(msg))).unwrap();
+    std::panic::set_hook(Box::new(|_| ()));
     panic!();
 }
