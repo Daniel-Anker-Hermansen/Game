@@ -1,10 +1,5 @@
 pub mod ffi_types;
-use std::marker::PhantomData;
-
-pub use concat_idents::concat_idents;
-#[cfg(feature = "game")]
-use libloading::Library;
-use libloading::Symbol;
+use ffi_types::FFIStaticStr;
 
 #[repr(C)]
 pub struct Version {
@@ -13,32 +8,63 @@ pub struct Version {
     pub patch: u32,
 }
 
-#[macro_export]
-macro_rules! version {
-    () => {
-        const _: () = {        
-            #[no_mangle]
-            pub static __API_VERSION: $crate::Version = $crate::Version {
-                major: 0,
-                minor: 1,
-                patch: 0,
-            };
-        };
-    };
+#[repr(C)]
+pub struct Metadata {
+    pub api_version: Version,
+    pub plugin_version: Version,
+    pub plugin_name: FFIStaticStr,
+    pub constructor: extern fn(),
 }
 
+#[cfg(feature = "plugin")]
 #[macro_export]
-macro_rules! name {
-    ($name:expr) => {
-        const _: () = {
+macro_rules! meta {
+    ($name:expr, $major:expr, $minor:expr, $patch:expr) => {
+        const _: () = {        
+            extern fn init() {
+                std::panic::set_hook(Box::new(|panic_info| {
+                    eprintln!("Game panicked inside plugin: {}, version: {}.{}.{}.", $name, $major, $minor, $patch);
+                    eprintln!("This is most likely a bug in that plugin. Please send a bug report including the following:");
+                    if let Some(loc) = panic_info.location() {
+                        eprintln!("Panic occured in file: '{}' at line {}.", loc.file(), loc.line());
+                    }
+                    if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+                        eprintln!("Reason for panic: {s:?}.");
+                    } 
+                    else {
+                        eprintln!("Unknown reason for panic.");
+                    }
+                    // In future version this can callback to game so that the error can be
+                    // displayed in window and perhaps have an automatic bug report submission
+                    // field. For now exit with -1 error code to avoid core dumped from
+                    // unsuccesful catching of panic from game.
+                    std::process::exit(-1);
+                }));
+            }
+
             #[no_mangle]
-            pub static __PLUGIN_NAME: $crate::ffi_types::FFIStaticStr = $crate::ffi_types::FFIStaticStr::from_str($name);
+            pub static __METADATA: $crate::Metadata = $crate::Metadata {
+                api_version: $crate::Version {
+                    major: 0,
+                    minor: 1,
+                    patch: 0,
+                },
+                plugin_version: $crate::Version {
+                    major: $major,
+                    minor: $minor,
+                    patch: $patch,
+                },
+                plugin_name: $crate::ffi_types::FFIStaticStr::from_str($name),
+                constructor: init,
+            };
         };
     };
 }
 
 pub trait Item: Sized {
     fn new() -> Self;
+
+    fn name() -> &'static str;
 
     fn id(&mut self) -> i64;
 }
@@ -47,6 +73,10 @@ pub trait Item: Sized {
 trait ItemRawAdapter: Item {
     extern fn new() -> *mut () {
         alloc(<Self as Item>::new()).cast()
+    }
+
+    extern fn name() -> FFIStaticStr {
+        FFIStaticStr::from_str(<Self as Item>::name())
     }
 
     extern fn id(ptr: *mut ()) -> i64 {
@@ -62,12 +92,12 @@ trait ItemRawAdapter: Item {
 impl<T> ItemRawAdapter for T where T: Item { }
 
 #[cfg(feature = "plugin")]
-pub const fn item_vtable<T>() -> ItemVTable<'static> where T: Item {
+pub const fn item_vtable<T>() -> ItemVTable where T: Item {
     ItemVTable { 
-        new: <T as ItemRawAdapter>::new, 
+        new: <T as ItemRawAdapter>::new,
+        name: <T as ItemRawAdapter>::name,
         id: <T as ItemRawAdapter>::id, 
         drop: <T as ItemRawAdapter>::drop, 
-        _phantom: PhantomData 
     }
 }
 
@@ -77,24 +107,29 @@ pub trait ItemGame {
 }
 
 #[repr(C)]
-pub struct ItemVTable<'lib> {
+#[derive(Clone, Copy)]
+pub struct ItemVTable {
     new: extern fn() -> *mut (),
+    name: extern fn() -> FFIStaticStr,
     id: extern fn(*mut ()) -> i64 ,
     drop: extern fn(*mut ()),
-    _phantom: PhantomData<&'lib ()>,
 }
 
 #[cfg(feature = "game")]
-impl<'lib> ItemVTable<'lib> {
-    pub fn new(&'lib self) -> ItemInstance<'lib> {
+impl ItemVTable {
+    pub fn new(&self) -> ItemInstance<'_> {
         ItemInstance { this: (self.new)(), vtable: self }
     }
+
+    pub fn name(&self) -> &str {
+        (self.name)().into()
+    } 
 }
 
 #[cfg(feature = "game")]
 pub struct ItemInstance<'lib> {
     this: *mut (),
-    vtable: &'lib ItemVTable<'lib>,
+    vtable: &'lib ItemVTable,
 }
 
 #[cfg(feature = "game")]
@@ -111,6 +146,13 @@ impl ItemGame for ItemInstance<'_> {
     }
 }
 
+#[cfg(feature = "game")]
+impl ItemInstance<'_> {
+    pub fn vtable(&self) -> &ItemVTable {
+        self.vtable
+    }
+}
+
 pub fn alloc<T>(val: T) -> *mut T {
     Box::into_raw(Box::new(val))
 }
@@ -120,30 +162,6 @@ pub fn drop<T>(ptr: *mut T) {
         std::ptr::drop_in_place(ptr);
     }
 }
-
-/*#[macro_export]
-macro_rules! __export_item {
-    ($t:ty) => {
-        $crate::concat_idents!(fn_name = __item_new_, $t {
-            #[no_mangle]
-            pub extern "C" fn fn_name() -> *mut $t {
-                $crate::alloc(<$t>::new())
-            }
-        });
-        $crate::concat_idents!(fn_name = __item_id_, $t {
-            #[no_mangle]
-            pub extern "C" fn fn_name(this: *mut $t) -> i64 {
-                (unsafe { &mut *this }).id()
-            }
-        });
-        $crate::concat_idents!(fn_name = __item_drop_, $t {
-            #[no_mangle]
-            pub extern "C" fn fn_name(this: *mut $t) {
-                $crate::drop(this);
-            }
-        });
-    };
-}*/
 
 #[macro_export]
 macro_rules! export_items {

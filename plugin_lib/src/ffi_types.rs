@@ -45,6 +45,7 @@ impl Drop for FFIString {
 
 /// FFI version for &'static str
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct FFIStaticStr {
     ptr: *const u8,
     len: usize,
@@ -102,7 +103,6 @@ impl FFIVec {
 }
 
 #[repr(C)]
-#[derive(Clone)]
 pub struct FFISlice<'lib> {
     ptr: *const (),
     len: usize,
@@ -113,7 +113,7 @@ unsafe impl Sync for FFISlice<'_> { }
 unsafe impl Send for FFISlice<'_> { }
 
 impl<'lib> FFISlice<'lib> {
-    pub unsafe fn to_slice<T>(&self) -> &'lib [T] {
+    pub unsafe fn to_slice<T>(&self) -> &'static [T] {
         unsafe { slice::from_raw_parts(self.ptr.cast(), self.len) }
     }
 
@@ -132,6 +132,6 @@ pub const fn slice_to_ffi<T>(value: &'static [T]) -> FFISlice<'static> {
         FFISlice { ptr: value.as_ptr().cast(), len: value.len(), _phantom: PhantomData }
 }
 
-pub unsafe fn load_slice_from_lib<'lib, T>(lib: &'lib Library, symbol: &[u8]) -> &'lib [T] {
-    FFISlice::load_from_lib(lib, symbol).map(|symbol| FFISlice::clone(&symbol).to_slice()).unwrap_or(&[])
+pub unsafe fn load_slice_from_lib<T>(lib: &Library, symbol: &[u8]) -> &'static [T] {
+    FFISlice::load_from_lib(lib, symbol).map(|symbol| symbol.to_slice()).unwrap_or(&[])
 }

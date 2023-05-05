@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-plugin_lib = { path = "../plugin_lib" }
+plugin_lib = { path = "../plugin_lib", default-features = false, features = ["game"] }
 libloading = "0.8.0"
-postcard = { version = "1.0.4", features = ["alloc"] }
-io_serde = { git = "https://github.com/Daniel-Anker-Hermansen/io_serde", version = "1.0.0" }
+libc = "0.2.142"
+winit = "0.28.3"

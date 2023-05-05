@@ -1,79 +1,62 @@
-use std::{ops::Deref, net::{TcpStream, TcpListener}};
+use plugin_lib::{ffi_types::load_slice_from_lib, ItemGame, ItemVTable, Metadata};
+use winit::{event_loop::EventLoop, window::WindowBuilder, event::{Event, DeviceEvent, ElementState}};
 
-use plugin_lib::{Version, ffi_types::{FFIStaticStr, load_slice_from_lib, FFISlice}, ItemGame, ItemVTable};
-
-const __API_VERSION: &[u8] = b"__API_VERSION";
-const __PLUGIN_NAME: &[u8] = b"__PLUGIN_NAME";
+const __METADATA: &[u8] = b"__METADATA\0";
+const __EXPORTED_ITEMS: &[u8] = b"__EXPORTED_ITEMS\0";
 
 fn main() {
-    //let tcp = connect();
-    
-    std::panic::set_hook(Box::new(|_info| {
-        println!("Do i get called in foreign code?");
-    }));
+    // Immitate regular segfault for now. Later change to show popup or something.
+    extern fn segfault(signum: libc::c_int) {
+        eprintln!("segmentation fault (core dumped)");
+        std::process::exit(signum as i32);
+    }
 
+    unsafe { libc::signal(libc::SIGSEGV, segfault as libc::size_t) };
+    
     let plugins = std::fs::read_dir("plugins").unwrap();
-    let mut plugs = vec![];
     let mut libs = vec![];
+    let mut items = vec![];
+
     for file in plugins {
         match file {
             Ok(file) => {
                 let path = file.path();
                 let lib = unsafe { libloading::Library::new(path).unwrap() };
-                let version = unsafe { lib.get::<&'static Version>(__API_VERSION).unwrap() };
-                let name = unsafe { lib.get::<&'static FFIStaticStr>(__PLUGIN_NAME).unwrap() };
-                let name: &str = (*name.deref()).into();
+                let meta = unsafe { lib.get::<&'static Metadata>(__METADATA).unwrap() };
+                let name: &str = meta.plugin_name.into();
                 println!("Plugin name: {}", name);
-                plugs.push(name);
-                println!("{}.{}.{}", version.major, version.minor, version.patch);
-                let items: &[ItemVTable] = unsafe { load_slice_from_lib(&lib, b"__EXPORTED_ITEMS") };
-                for item in items {
-                    let mut instance = item.new();
-                    println!("Missing name...");
-                    for _ in 0..50 {
-                        println!("{}", instance.id());
-                    }
-                }
+                println!("{}.{}.{}", meta.plugin_version.major, meta.plugin_version.minor, meta.plugin_version.patch);
+                (meta.constructor)();
+                unsafe { items.extend_from_slice(load_slice_from_lib::<ItemVTable>(&lib, __EXPORTED_ITEMS)) };
                 libs.push(lib);
             },
             Err(e) => eprintln!("{e}"),
         }
     }
-    /*let tcp_writer = tcp.try_clone().unwrap();
-    let mut buf_writer = BufWriter::new(tcp_writer);
-    let mut buf_reader = BufReader::new(tcp);
-    let thread = std::thread::spawn(move || {
-        let plugs: Vec<String> = buf_reader.read_serde().unwrap();
-        println!("\nOther client has plugins:");
-        for plug in plugs {
-            println!("{plug}");
+
+    for item in &items {
+        println!("{}", item.name());
+    }
+
+    let event_loop = EventLoop::new();
+    let _window = WindowBuilder::new()
+        .build(&event_loop);
+    let items = items.leak();
+
+    let mut item_instances: Vec<_> = items.iter().map(|vtable| vtable.new()).collect();
+
+    event_loop.run(move |event, _target, _flow| {
+        match event {
+            Event::DeviceEvent { event, .. } => match event {
+                DeviceEvent::Button { button: 1, state: ElementState::Pressed } => {
+                    for item in item_instances.iter_mut() {
+                        let id = item.id();
+                        println!("{}: {}", item.vtable().name(), id)
+                    }
+                },
+                _ => (),
+            },
+            _ => (),
         }
     });
-    buf_writer.write_serde(&plugs).unwrap();
-    buf_writer.flush().unwrap();
-    thread.join().unwrap();*/
-}
-
-fn connect() -> TcpStream {
-    println!("Press 0 for hosting, press 1 for connecting");
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).unwrap();
-    match input.trim() {
-        "0" => {
-            let listener = TcpListener::bind("0.0.0.0:0").unwrap();
-            let addr = listener.local_addr().unwrap().port();
-            println!("Hosting at port: {addr:?}");
-            let (tcp, socket) = listener.accept().unwrap();
-            println!("Connected to: {socket:?}");
-            tcp
-        }
-        "1" => {
-            println!("Please enter adress");
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input).unwrap();
-            let addr = input.trim();
-            TcpStream::connect(addr).unwrap()
-        }
-        _ => connect()
-    }
 }
