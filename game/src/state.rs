@@ -84,12 +84,15 @@ impl State {
         };
 
         if let Some(msg) = &self.panic {
+            let font = ab_glyph::FontArc::try_from_slice(include_bytes!("console.ttf")).unwrap();
+            let id = self.glyph_brush.add_font(font);
             self.glyph_brush.queue(Section {
-                screen_position: (30.0, 30.0),
-                bounds: (self.size.width as f32, self.size.height as f32),
+                screen_position: (15.0, 15.0),
+                bounds: (self.size.width as f32 - 15.0, self.size.height as f32 - 15.0),
                 text: vec![Text::new(&msg)
                     .with_color([1.0, 1.0, 1.0, 1.0])
-                    .with_scale(20.0)],
+                    .with_scale(12.0)
+                    .with_font_id(id)],
                 ..default()
             });
         }
